@@ -1,0 +1,160 @@
+@AiTicketTriage.Api_HostAddress = http://localhost:5115
+@AiTicketTriage.Api_HttpsHostAddress = https://localhost:7227
+
+GET {{AiTicketTriage.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+### Ticket 01 - Reporting
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Monthly report export fails",
+  "description": "A synthetic support user receives an error when exporting the August monthly report."
+}
+
+### Ticket 02 - Authentication
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Unable to sign in",
+  "description": "A synthetic user reports that their password is rejected after a recent password change."
+}
+
+### Ticket 03 - Billing
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Invoice charged twice this month",
+  "description": "A synthetic finance user says the same September invoice was billed twice and wants the extra charge reversed."
+}
+
+### Ticket 04 - Performance
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Dashboard takes over two minutes to load",
+  "description": "A synthetic operations user reports the main dashboard hangs after login and sometimes times out during peak hours."
+}
+
+### Ticket 05 - Missing data
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Customer records disappeared after sync",
+  "description": "A synthetic account manager says 40 customer records vanished after last night's CRM sync and cannot find them in archive or trash."
+}
+
+### Ticket 06 - Permissions
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "New hire cannot open the billing workspace",
+  "description": "A synthetic team lead reports a new hire can sign in but gets Access Denied when opening invoices, even after being added to the Finance group."
+}
+
+### Ticket 07 - Email notifications
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Password reset emails are not arriving",
+  "description": "A synthetic user requested a password reset three times and no email arrived in inbox or spam. Other users on the same domain report the same issue."
+}
+
+### Ticket 08 - Third-party integration
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Slack alerts stopped after webhook update",
+  "description": "A synthetic on-call engineer says incident alerts no longer post to Slack after yesterday's webhook URL rotation. The old endpoint returns 410 Gone."
+}
+
+### Ticket 09 - Mobile crash
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "iOS app crashes when attaching a photo",
+  "description": "A synthetic field agent reports the mobile app closes immediately after choosing a photo on iOS 18. Android users on the same account are unaffected."
+}
+
+### Ticket 10 - Security
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Unexpected login from another country",
+  "description": "A synthetic user saw a successful sign-in from an unrecognized city overnight and wants the session revoked and their account reviewed."
+}
+
+### Ticket 11 - Outage
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Entire team cannot open the portal",
+  "description": "A synthetic office manager says all 12 staff members get HTTP 503 on the customer portal since 09:10. Status page still shows all systems operational."
+}
+
+### Ticket 12 - UI defect
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Save button is hidden on the ticket form",
+  "description": "A synthetic agent using a 1366x768 laptop cannot see the Save button on the create-ticket screen. Zooming out does not reveal it."
+}
+
+### Ticket 13 - Feature request
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Need CSV export for closed tickets",
+  "description": "A synthetic supervisor asks for a weekly CSV export of closed tickets by assignee. This is a request for a new report, not a current product failure."
+}
+
+### Ticket 14 - Data privacy
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Please delete a synthetic customer's stored profile",
+  "description": "A synthetic compliance officer requests deletion of a test customer's profile and related tickets under an internal privacy review. No production customer is involved."
+}
+
+### Ticket 15 - Incomplete information
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Something is broken",
+  "description": "A synthetic user says it does not work anymore. No product area, error message, timestamp, or screenshot was provided."
+}
+
+
+### Empty API call test
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "",
+  "description": ""
+}
+
+### Invalid Test 01 - Missing Subject
+POST {{baseUrl}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "description": "Synthetic ticket description with enough detail."
+}
+
+###
