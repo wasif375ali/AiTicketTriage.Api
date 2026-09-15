@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Ticket Triage</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #111827;
+      --bubble: #1e293b;
+      --user: #4f46e5;
+      --error: #7f1d1d;
+      --text: #ffffff;
+      --muted: #94a3b8;
+      --accent: #818cf8;
+      --chip: #312e81;
+      --chip-text: #c7d2fe;
+      --border: #1f2937;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 100%;
+    }
+
+    header, footer {
+      background: var(--panel);
+      padding: 18px 20px 14px;
+    }
+
+    footer { padding: 12px 16px 16px; border-top: 1px solid var(--border); }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 650;
+    }
+
+    .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .status { color: var(--accent); font-size: 12px; margin-top: 8px; }
+
+    #messages {
+      overflow-y: auto;
+      padding: 8px 0 12px;
+    }
+
+    .row {
+      padding: 6px 16px;
+      display: flex;
+    }
+
+    .row.user { justify-content: flex-end; }
+
+    .bubble {
+      max-width: 640px;
+      padding: 12px 14px;
+      border-radius: 18px;
+      background: var(--bubble);
+      white-space: pre-wrap;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .row.user .bubble { background: var(--user); }
+    .row.error .bubble { background: var(--error); }
+
+    .meta { margin-top: 10px; border-top: 1px solid #334155; padding-top: 10px; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+
+    .chip {
+      background: var(--chip);
+      color: var(--chip-text);
+      border-radius: 12px;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .chip.critical { background: #ef4444; color: white; }
+    .chip.high { background: #f97316; color: white; }
+    .chip.medium { background: #f59e0b; color: white; }
+    .chip.low { background: #22c55e; color: white; }
+    .chip.review-chip { background: #b45309; color: #fde68a; }
+
+    .action { color: #e2e8f0; font-size: 13px; }
+    .review { color: #fbbf24; font-size: 12px; margin-top: 8px; }
+
+    .samples {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      margin-bottom: 10px;
+    }
+
+    button, input, textarea {
+      font: inherit;
+    }
+
+    .sample, button[type="submit"] {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .sample {
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+
+    input, textarea {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+
+    textarea { min-height: 90px; resize: vertical; }
+
+    .send-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .busy { color: var(--accent); font-size: 13px; }
+
+    button[type="submit"] {
+      background: #4f46e5;
+      color: white;
+      font-weight: 650;
+      padding: 10px 18px;
+      border-radius: 8px;
+    }
+
+    button[type="submit"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>AI Ticket Triage</h1>
+      <div class="subtitle">Chat with Gemini to classify support tickets</div>
+      <div class="status" id="status">Ready</div>
+    </header>
+
+    <div id="messages"></div>
+
+    <footer>
+      <div class="samples">
+        <button class="sample" type="button" data-key="report">Reporting</button>
+        <button class="sample" type="button" data-key="login">Login issue</button>
+        <button class="sample" type="button" data-key="outage">Outage</button>
+        <button class="sample" type="button" data-key="incomplete">Incomplete</button>
+      </div>
+
+      <form id="ticket-form">
+        <input id="subject" placeholder="Ticket subject" maxlength="200" required />
+        <textarea id="description" placeholder="Describe the issue like you would in a support chat..." maxlength="4000" required></textarea>
+        <div class="send-row">
+          <div class="busy" id="busy" hidden>Gemini is reviewing the ticket...</div>
+          <button type="submit" id="send">Send ticket</button>
+        </div>
+      </form>
+    </footer>
+  </div>
+
+  <script>
+    const samples = {
+      report: {
+        subject: "Monthly report export fails",
+        description: "A synthetic support user receives an error when exporting the August monthly report."
+      },
+      login: {
+        subject: "Unable to sign in",
+        description: "A synthetic user reports that their password is rejected after a recent password change."
+      },
+      outage: {
+        subject: "Entire team cannot open the portal",
+        description: "A synthetic office manager says all 12 staff members get HTTP 503 on the customer portal since 09:10."
+      },
+      incomplete: {
+        subject: "Something is broken",
+        description: "A synthetic user says it does not work anymore. No product area, error message, timestamp, or screenshot was provided."
+      }
+    };
+
+    const messages = document.getElementById("messages");
+    const status = document.getElementById("status");
+    const form = document.getElementById("ticket-form");
+    const subject = document.getElementById("subject");
+    const description = document.getElementById("description");
+    const send = document.getElementById("send");
+    const busy = document.getElementById("busy");
+
+    addMessage("assistant", "Hi, I am your ticket triage assistant.\n\nEnter a subject and describe the issue. I will ask Gemini for a summary, category, priority, and a suggested next step.\n\nThis is advisory only and is not a final business decision.");
+
+    document.querySelectorAll(".sample").forEach((button) => {
+      button.addEventListener("click", () => {
+        const sample = samples[button.dataset.key];
+        subject.value = sample.subject;
+        description.value = sample.description;
+      });
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const ticket = {
+        subject: subject.value.trim(),
+        description: description.value.trim()
+      };
+
+      if (ticket.subject.length < 3 || ticket.description.length < 10) {
+        addMessage("error", "Please check the subject (3-200 characters) and description (10-4000 characters).");
+        return;
+      }
+
+      addMessage("user", `${ticket.subject}\n\n${ticket.description}`);
+      subject.value = "";
+      description.value = "";
+      setBusy(true);
+
+      const placeholder = addMessage("assistant", "Reading the ticket and asking Gemini...");
+
+      try {
+        const response = await fetch("/api/ai/tickets/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ticket)
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new Error(body || `The API returned ${response.status}.`);
+        }
+
+        const result = await response.json();
+        placeholder.remove();
+        addMessage("assistant", result.summary || result.Summary || "Gemini returned a triage result.", result);
+      } catch (error) {
+        placeholder.remove();
+        addMessage("error", error.message || "The request failed.");
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    function setBusy(isBusy) {
+      send.disabled = isBusy;
+      busy.hidden = !isBusy;
+      status.textContent = isBusy ? "Gemini is reviewing the ticket..." : "Ready";
+    }
+
+    function addMessage(role, text, triage) {
+      const row = document.createElement("div");
+      row.className = `row ${role}`;
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = text;
+
+      if (triage) {
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const category = triage.category ?? triage.Category ?? "";
+        const priority = triage.priority ?? triage.Priority ?? "";
+        const suggestedAction = triage.suggestedAction ?? triage.SuggestedAction ?? "";
+        const needsHumanReview = readNeedsHumanReview(triage);
+        meta.innerHTML = `
+          <div class="chips">
+            <span class="chip">Category · ${escapeHtml(category)}</span>
+            <span class="chip ${String(priority).toLowerCase()}">Priority · ${escapeHtml(priority)}</span>
+            <span class="chip review-chip">Needs human review · ${needsHumanReview ? "true" : "false"}</span>
+          </div>
+          <div class="action">Suggested action: ${escapeHtml(suggestedAction)}</div>
+        `;
+        bubble.appendChild(meta);
+      }
+
+      row.appendChild(bubble);
+      messages.appendChild(row);
+      row.scrollIntoView({ behavior: "smooth", block: "end" });
+      return row;
+    }
+
+    function readNeedsHumanReview(triage) {
+      const value = triage.needsHumanReview ?? triage.NeedsHumanReview;
+      if (typeof value === "boolean") {
+        return value;
+      }
+      if (typeof value === "string") {
+        return value.trim().toLowerCase() === "true";
+      }
+      return false;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+  </script>
+</body>
+</html>

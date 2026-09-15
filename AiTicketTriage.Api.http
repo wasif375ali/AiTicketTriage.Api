@@ -150,11 +150,63 @@ Content-Type: application/json
 }
 
 ### Invalid Test 01 - Missing Subject
-POST {{baseUrl}}/api/ai/tickets/triage
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
 Content-Type: application/json
 
 {
+  "subject":"",
   "description": "Synthetic ticket description with enough detail."
 }
 
 ###
+
+### Invalid Test 01 - Missing Subject
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject":"Test with QAQC",
+  "description": "Fails"
+}
+
+###
+
+# Invalid Test 04 - Missing Description
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Monthly export fails"
+}
+
+###
+
+### Invalid Test 03 - Description Too Short
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Export issue",
+  "description": "Fails"
+}
+
+###
+
+# Valid Regression Test
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Monthly report export fails",
+  "description": "A synthetic user receives an error while exporting the monthly report."
+}
+
+###
+
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "",
+  "description": "Short"
+}

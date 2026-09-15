@@ -1,6 +1,9 @@
 ﻿using AiTicketTriage.Api.Contracts;
+using AiTicketTriage.Api.Models;
 using Google.GenAI;
 using Google.GenAI.Types;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace AiTicketTriage.Api.Services
 {
@@ -20,43 +23,75 @@ namespace AiTicketTriage.Api.Services
                 ?? throw new InvalidOperationException(
                     "Gemini model is not configured.");
         }
-
+        private static readonly JsonNode TicketTriageResponseSchema =
+    JsonNode.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "string",
+              "description": "A concise summary of the support ticket."
+            },
+            "category": {
+              "type": "string",
+              "description": "The recommended category for the support ticket."
+            },
+            "priority": {
+              "type": "string",
+              "description": "The recommended priority for the support ticket."
+            },
+            "suggestedAction": {
+              "type": "string",
+              "description": "A concise recommended next action."
+            },
+            "needsHumanReview": {
+              "type": "boolean",
+              "description": "Whether a human should review the recommendation before action."
+            }
+          },
+          "required": [
+            "summary",
+            "category",
+            "priority",
+            "suggestedAction",
+            "needsHumanReview"
+          ],
+          "additionalProperties": false
+        }
+        """
+    )!;
         public async Task<TicketTriageResponse> TriageAsync(
             string subject,
             string description,
             CancellationToken cancellationToken = default)
         {
+
+
             var config = new GenerateContentConfig
             {
                 SystemInstruction = new Content
                 {
-                    Parts =
-                    [
-                        new Part
-                        {
-                            Text = """
-                            You are a support ticket triage assistant.
+                    Parts = new List<Part>
+        {
+            new()
+            {
+                 Text = """
+                            You are a support-ticket triage assistant.
 
-                            Analyze only the supplied synthetic support ticket.
+                               Analyze only the information present in the supplied ticket.
+                               Do not invent missing facts.
+                               Produce a concise business-friendly triage recommendation.
+                               Recommend human review whenever uncertainty or business risk requires it.
 
-                            Return exactly these five labeled lines:
-
-                            SUMMARY: concise ticket summary
-                            CATEGORY: short business-friendly category
-                            PRIORITY: Low, Medium, High, or Critical
-                            SUGGESTED_ACTION: concise next action for a support engineer
-                            NEEDS_HUMAN_REVIEW: true or false
-
-                            Do not add markdown.
-                            Do not add extra headings.
-                            Do not add explanations before or after the five lines.
-
-                            Your output is advisory only and must not be treated
-                            as a final business decision.
+                               Return the result according to the configured response schema.
                             """
-                        }
-                    ]
-                }
+            }
+        }
+                },
+
+                ResponseMimeType = "application/json",
+                ResponseJsonSchema = TicketTriageResponseSchema
             };
 
             var userInput = $"""
@@ -67,7 +102,7 @@ namespace AiTicketTriage.Api.Services
             {description}
             """;
 
-        
+
 
             var response =
                 await _client.Models.GenerateContentAsync(
@@ -75,31 +110,56 @@ namespace AiTicketTriage.Api.Services
                     contents: userInput,
                     config: config,
                     cancellationToken: cancellationToken);
-            await Task.Delay(
-TimeSpan.FromSeconds(5),
-cancellationToken);
-            var rawText =
+
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+
+            var json =
                 response.Candidates?[0]?.Content?.Parts?[0]?.Text
                 ?? throw new InvalidOperationException(
                     "Gemini returned an empty response.");
 
-            var humanReviewText =
-                GetValue(rawText, "NEEDS_HUMAN_REVIEW:");
+            var modelOutput = JsonSerializer.Deserialize<TicketTriageModelOutput>(json);
 
-            var needsHumanReview =
-                !bool.TryParse(
-                    humanReviewText,
-                    out var parsedHumanReview)
-                || parsedHumanReview;
+            if (modelOutput is null)
+            {
+                throw new InvalidOperationException(
+                    "Gemini structured output could not be deserialized.");
+            }
 
+            if (modelOutput.Summary is null ||
+                modelOutput.Category is null ||
+                modelOutput.Priority is null ||
+                modelOutput.SuggestedAction is null ||
+                modelOutput.NeedsHumanReview is null)
+            {
+                throw new InvalidOperationException(
+                    "Gemini returned incomplete structured output.");
+            }
             return new TicketTriageResponse
             {
-                Summary = GetValue(rawText, "SUMMARY:"),
-                Category = GetValue(rawText, "CATEGORY:"),
-                Priority = GetValue(rawText, "PRIORITY:"),
-                SuggestedAction = GetValue(rawText, "SUGGESTED_ACTION:"),
-                NeedsHumanReview = needsHumanReview
+                Summary = modelOutput.Summary,
+                Category = modelOutput.Category,
+                Priority = modelOutput.Priority,
+                SuggestedAction = modelOutput.SuggestedAction,
+                NeedsHumanReview = modelOutput.NeedsHumanReview.Value
             };
+            //var humanReviewText =
+            //    GetValue(rawText, "NEEDS_HUMAN_REVIEW:");
+
+            //var needsHumanReview =
+            //    !bool.TryParse(
+            //        humanReviewText,
+            //        out var parsedHumanReview)
+            //    || parsedHumanReview;
+
+            //return new TicketTriageResponse
+            //{
+            //    Summary = GetValue(rawText, "SUMMARY:"),
+            //    Category = GetValue(rawText, "CATEGORY:"),
+            //    Priority = GetValue(rawText, "PRIORITY:"),
+            //    SuggestedAction = GetValue(rawText, "SUGGESTED_ACTION:"),
+            //    NeedsHumanReview = needsHumanReview
+            //};
         }
 
         private static string GetValue(
