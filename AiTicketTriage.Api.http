@@ -210,3 +210,164 @@ Content-Type: application/json
   "subject": "",
   "description": "Short"
 }
+###
+
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+{
+  "subject": "Cannot sign in",
+  "description": "A synthetic test user cannot sign in to the training portal after resetting the password."
+}
+
+###
+# Allow-list tests
+# C# validator accepts only these exact values (case-sensitive):
+#   category: Account Access | Application Error | Performance | User Interface | Billing | Other
+#   priority: Low | Medium | High | Critical
+# Expected: 200 with category/priority from those lists.
+# If Gemini returns anything else (Authentication, Security, reporting, high, etc.)
+# the API should fail with 500: unsupported category/priority.
+
+### Allow-list Category 01 - Account Access
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Locked out after password reset",
+  "description": "A synthetic user completed a password reset but still cannot sign in. The account shows as active and no MFA prompt appears."
+}
+
+### Allow-list Category 02 - Application Error
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Save ticket throws an unhandled exception",
+  "description": "A synthetic agent clicks Save on an existing ticket and the app shows an unhandled exception. The ticket is not updated and the error repeats every time."
+}
+
+### Allow-list Category 03 - Performance
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Global search takes more than 90 seconds",
+  "description": "A synthetic operations user says customer search hangs for over 90 seconds during business hours and sometimes times out before results appear."
+}
+
+### Allow-list Category 04 - User Interface
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Create-ticket buttons overlap on a small laptop",
+  "description": "A synthetic agent on a 1366x768 screen cannot click Save because Cancel and Save overlap. No error occurs; the layout is unusable."
+}
+
+### Allow-list Category 05 - Billing
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Subscription billed after cancellation",
+  "description": "A synthetic finance user cancelled the plan on 1 September but was charged again on 5 September. They want the extra invoice reversed."
+}
+
+### Allow-list Category 06 - Other
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "How do I change the company logo?",
+  "description": "A synthetic supervisor asks where to upload a new company logo. This is a how-to question, not a product failure or billing issue."
+}
+
+### Allow-list Priority 01 - Low
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Typo in the help page footer",
+  "description": "A synthetic user noticed a spelling mistake in the footer of the help page. The rest of the product works and no workflow is blocked."
+}
+
+### Allow-list Priority 02 - Medium
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Ticket list filter resets after changing pages",
+  "description": "A synthetic agent applies a status filter, goes to page 2, and the filter clears. They can still work but have to reapply the filter each time."
+}
+
+### Allow-list Priority 03 - High
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Finance team cannot open the payments page",
+  "description": "A synthetic finance lead says all eight finance users get an error opening Payments since 08:30. Invoices cannot be processed until this is fixed."
+}
+
+### Allow-list Priority 04 - Critical
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Checkout is down for every customer",
+  "description": "A synthetic on-call engineer reports that all customers fail checkout with HTTP 500. No orders have completed for 20 minutes and revenue has stopped."
+}
+
+### Allow-list Off-list 01 - Must not return Authentication
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Authentication failed after password change",
+  "description": "A synthetic user changed their password and now authentication fails on every login attempt. Expect category Account Access, not Authentication."
+}
+
+### Allow-list Off-list 02 - Must not return Reporting
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Monthly reporting export crashes",
+  "description": "A synthetic support user gets an application crash when exporting the monthly reporting pack. Expect Application Error or Other, not Reporting."
+}
+
+### Allow-list Off-list 03 - Must not return Security
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Security alert for a login from another country",
+  "description": "A synthetic user received a security alert for a successful login from an unknown city and wants the session revoked. Expect Account Access or Other, not Security."
+}
+
+### Allow-list Off-list 04 - Must not return Integration
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Slack integration webhook stopped posting alerts",
+  "description": "A synthetic on-call engineer says the Slack integration no longer posts incident alerts after the webhook URL was rotated. Expect Application Error or Other, not Integration."
+}
+
+### Allow-list Off-list 05 - Must not return Data Privacy
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Please delete a synthetic customer profile",
+  "description": "A synthetic compliance officer requests deletion of a test customer profile for an internal privacy review. Expect Other, not Data Privacy or Compliance."
+}
+
+### Allow-list Ambiguous - Human review and Other
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Something is not right",
+  "description": "A synthetic user says something feels wrong in the system but gives no product area, error message, timestamp, or screenshot."
+}

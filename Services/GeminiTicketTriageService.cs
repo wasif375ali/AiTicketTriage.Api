@@ -35,10 +35,24 @@ namespace AiTicketTriage.Api.Services
             },
             "category": {
               "type": "string",
+              "enum": [
+                  "Account Access",
+                  "Application Error",
+                  "Performance",
+                  "User Interface",
+                  "Billing",
+                  "Other"
+                ],
               "description": "The recommended category for the support ticket."
             },
             "priority": {
               "type": "string",
+                "enum": [
+                      "Low",
+                      "Medium",
+                      "High",
+                      "Critical"
+                    ],
               "description": "The recommended priority for the support ticket."
             },
             "suggestedAction": {
@@ -126,21 +140,24 @@ namespace AiTicketTriage.Api.Services
                     "Gemini structured output could not be deserialized.");
             }
 
-            if (modelOutput.Summary is null ||
-                modelOutput.Category is null ||
-                modelOutput.Priority is null ||
-                modelOutput.SuggestedAction is null ||
-                modelOutput.NeedsHumanReview is null)
-            {
-                throw new InvalidOperationException(
-                    "Gemini returned incomplete structured output.");
-            }
+            //c# business validator class
+            TicketTriageOutputValidator.Validate(modelOutput);
+
+            //if (modelOutput.Summary is null ||
+            //    modelOutput.Category is null ||
+            //    modelOutput.Priority is null ||
+            //    modelOutput.SuggestedAction is null ||
+            //    modelOutput.NeedsHumanReview is null)
+            //{
+            //    throw new InvalidOperationException(
+            //        "Gemini returned incomplete structured output.");
+            //}
             return new TicketTriageResponse
             {
-                Summary = modelOutput.Summary,
-                Category = modelOutput.Category,
-                Priority = modelOutput.Priority,
-                SuggestedAction = modelOutput.SuggestedAction,
+                Summary = modelOutput.Summary!,
+                Category = modelOutput.Category!,
+                Priority = modelOutput.Priority!,
+                SuggestedAction = modelOutput.SuggestedAction!,
                 NeedsHumanReview = modelOutput.NeedsHumanReview.Value
             };
             //var humanReviewText =
