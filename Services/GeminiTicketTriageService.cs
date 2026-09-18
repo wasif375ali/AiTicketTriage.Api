@@ -11,20 +11,15 @@ namespace AiTicketTriage.Api.Services
     {
         private readonly Client _client;
         private readonly string _model;
+        private static readonly TimeSpan TotalAiTimeout = TimeSpan.FromSeconds(20);
 
-        public GeminiTicketTriageService(
-            Client client,
-            IConfiguration configuration)
+        public GeminiTicketTriageService(Client client, IConfiguration configuration)
         {
             _client = client;
 
-            _model =
-                configuration["Gemini:Model"]
-                ?? throw new InvalidOperationException(
-                    "Gemini model is not configured.");
+            _model = configuration["Gemini:Model"] ?? throw new InvalidOperationException("Gemini model is not configured.");
         }
-        private static readonly JsonNode TicketTriageResponseSchema =
-    JsonNode.Parse(
+        private static readonly JsonNode TicketTriageResponseSchema = JsonNode.Parse(
         """
         {
           "type": "object",
@@ -82,6 +77,10 @@ namespace AiTicketTriage.Api.Services
         {
 
 
+            using var totalTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+            totalTimeoutCts.CancelAfter(TotalAiTimeout);
+
             var config = new GenerateContentConfig
             {
                 SystemInstruction = new Content
@@ -117,13 +116,22 @@ namespace AiTicketTriage.Api.Services
             """;
 
 
-
-            var response =
-                await _client.Models.GenerateContentAsync(
-                    model: _model,
-                    contents: userInput,
-                    config: config,
-                    cancellationToken: cancellationToken);
+            var response = default(GenerateContentResponse);
+            try
+            {
+                 response =
+                       await _client.Models.GenerateContentAsync(
+                           model: _model,
+                           contents: userInput,
+                           config: config,
+                           cancellationToken: totalTimeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && totalTimeoutCts.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Gemini triage exceeded the total timeout of " +
+                    $"{TotalAiTimeout.TotalSeconds} seconds.");
+            }
 
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
 

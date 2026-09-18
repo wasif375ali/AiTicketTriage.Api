@@ -1,5 +1,6 @@
 using AiTicketTriage.Api.Services;
 using Google.GenAI;
+using Google.GenAI.Types;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,8 +31,29 @@ var geminiApiKey =
     ?? throw new InvalidOperationException(
         "Gemini API key is not configured.");
 
+var httpOptions = new HttpOptions
+{
+    RetryOptions = new HttpRetryOptions
+    {
+        Attempts = 3,
+        InitialDelay = 1.0,
+        MaxDelay = 4.0,
+        ExpBase = 2.0,
+        Jitter = 0.5,
+        HttpStatusCodes =
+        [
+            408,
+            429,
+            500,
+            502,
+            503,
+            504
+        ]
+    }
+};
+
 builder.Services.AddScoped(
-    _ => new Client(apiKey: geminiApiKey));
+    _ => new Client(apiKey: geminiApiKey, httpOptions: httpOptions));
 
 builder.Services.AddScoped<
     IAiTicketTriageService,
@@ -64,4 +86,4 @@ app.MapControllers();
 
 app.Run();
 
- 
+

@@ -371,3 +371,12 @@ Content-Type: application/json
   "subject": "Something is not right",
   "description": "A synthetic user says something feels wrong in the system but gives no product area, error message, timestamp, or screenshot."
 }
+
+### 
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Dashboard loads slowly",
+  "description": "The synthetic training dashboard takes around twenty seconds to load."
+}
