@@ -380,3 +380,30 @@ Content-Type: application/json
   "subject": "Dashboard loads slowly",
   "description": "The synthetic training dashboard takes around twenty seconds to load."
 }
+
+### Request 1 - UI issue
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Button alignment issue",
+  "description": "The synthetic Save button is slightly misaligned on mobile."
+}
+
+### Request 2 - performance
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Reports load slowly",
+  "description": "The synthetic reports page takes approximately fifteen seconds to load."
+}
+
+### Request 3 - unclear
+POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
+Content-Type: application/json
+
+{
+  "subject": "Need help",
+  "description": "The synthetic user reports a problem but provides insufficient details."
+}

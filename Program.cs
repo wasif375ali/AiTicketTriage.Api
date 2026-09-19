@@ -4,12 +4,10 @@ using Google.GenAI.Types;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
 var aiTimeoutSeconds =
     builder.Configuration
         .GetValue<int?>("Ai:TriageTimeoutSeconds")
-    ?? 30;
+    ?? 90;
 
 builder.Services.AddRequestTimeouts(options =>
 {
@@ -21,10 +19,7 @@ builder.Services.AddRequestTimeouts(options =>
 builder.Services.AddProblemDetails();
 
 builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
-
-
 
 var geminiApiKey =
     builder.Configuration["Gemini:ApiKey"]
@@ -33,6 +28,7 @@ var geminiApiKey =
 
 var httpOptions = new HttpOptions
 {
+    Timeout = 20_000,
     RetryOptions = new HttpRetryOptions
     {
         Attempts = 3,
@@ -52,18 +48,34 @@ var httpOptions = new HttpOptions
     }
 };
 
-builder.Services.AddScoped(
-    _ => new Client(apiKey: geminiApiKey, httpOptions: httpOptions));
+builder.Services.AddSingleton<IApplicationLogStore, SqlApplicationLogStore>();
+builder.Services.AddSingleton(httpOptions);
+
+builder.Services.AddScoped(sp =>
+{
+    var logStore = sp.GetRequiredService<IApplicationLogStore>();
+    var options = sp.GetRequiredService<HttpOptions>();
+
+    return new Client(
+        apiKey: geminiApiKey,
+        httpOptions: options,
+        clientOptions: new ClientOptions
+        {
+            HttpClientFactory = () => new HttpClient(
+                new GeminiHttpLoggingHandler(new HttpClientHandler(), logStore),
+                disposeHandler: true)
+            {
+                Timeout = TimeSpan.FromMilliseconds(options.Timeout ?? 20_000)
+            }
+        });
+});
 
 builder.Services.AddScoped<
     IAiTicketTriageService,
     GeminiTicketTriageService>();
 
-
-
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -85,5 +97,3 @@ app.UseStaticFiles();
 app.MapControllers();
 
 app.Run();
-
-

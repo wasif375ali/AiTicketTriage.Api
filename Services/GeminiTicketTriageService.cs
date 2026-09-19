@@ -2,6 +2,8 @@
 using AiTicketTriage.Api.Models;
 using Google.GenAI;
 using Google.GenAI.Types;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -11,13 +13,25 @@ namespace AiTicketTriage.Api.Services
     {
         private readonly Client _client;
         private readonly string _model;
-        private static readonly TimeSpan TotalAiTimeout = TimeSpan.FromSeconds(20);
-
-        public GeminiTicketTriageService(Client client, IConfiguration configuration)
+        private readonly TimeSpan _totalAiTimeout;
+        private readonly HttpOptions _httpOptions;
+        // private readonly ILogger<GeminiTicketTriageService> _logger;
+        private readonly IApplicationLogStore _logStore;
+        private const string PromptVersion = "ticket-triage-prompt-002";
+        public GeminiTicketTriageService(
+            Client client,
+            IConfiguration configuration,
+            IApplicationLogStore logStore,
+            HttpOptions httpOptions)
+            // ILogger<GeminiTicketTriageService> logger)
         {
             _client = client;
-
+            _logStore = logStore;
+            _httpOptions = httpOptions;
+            // _logger = logger;
             _model = configuration["Gemini:Model"] ?? throw new InvalidOperationException("Gemini model is not configured.");
+            _totalAiTimeout = TimeSpan.FromSeconds(
+                configuration.GetValue<int?>("Ai:TriageTimeoutSeconds") ?? 90);
         }
         private static readonly JsonNode TicketTriageResponseSchema = JsonNode.Parse(
         """
@@ -79,61 +93,97 @@ namespace AiTicketTriage.Api.Services
 
             using var totalTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-            totalTimeoutCts.CancelAfter(TotalAiTimeout);
+            totalTimeoutCts.CancelAfter(_totalAiTimeout);
 
             var config = new GenerateContentConfig
             {
                 SystemInstruction = new Content
                 {
                     Parts = new List<Part>
-        {
-            new()
-            {
-                 Text = """
-                            You are a support-ticket triage assistant.
+                            {
+                                new()
+                                {
+                                     Text = """
+                                                You are a support-ticket triage assistant.
 
-                               Analyze only the information present in the supplied ticket.
-                               Do not invent missing facts.
-                               Produce a concise business-friendly triage recommendation.
-                               Recommend human review whenever uncertainty or business risk requires it.
+                                                   Analyze only the information present in the supplied ticket.
+                                                   Do not invent missing facts.
+                                                   Produce a concise business-friendly triage recommendation.
+                                                   Recommend human review whenever uncertainty or business risk requires it.
 
-                               Return the result according to the configured response schema.
-                            """
-            }
-        }
+                                                   Return the result according to the configured response schema.
+                                                """
+                                }
+                            }
                 },
 
                 ResponseMimeType = "application/json",
-                ResponseJsonSchema = TicketTriageResponseSchema
+                ResponseJsonSchema = TicketTriageResponseSchema,
+                HttpOptions = _httpOptions
             };
 
             var userInput = $"""
-            Ticket Subject:
-            {subject}
+                                Ticket Subject:
+                                {subject}
 
-            Ticket Description:
-            {description}
-            """;
+                                Ticket Description:
+                                {description}
+                                """;
 
 
             var response = default(GenerateContentResponse);
+
+            var stopwatch = Stopwatch.StartNew();
+
             try
             {
-                 response =
-                       await _client.Models.GenerateContentAsync(
-                           model: _model,
-                           contents: userInput,
-                           config: config,
-                           cancellationToken: totalTimeoutCts.Token);
+                response =
+                      await _client.Models.GenerateContentAsync(
+                          model: _model,
+                          contents: userInput,
+                          config: config,
+                          cancellationToken: totalTimeoutCts.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && totalTimeoutCts.IsCancellationRequested)
             {
+                stopwatch.Stop();
+
+                // _logger.LogWarning(
+                //         "AI triage timed out. " +
+                //         "PromptVersion={PromptVersion} " +
+                //         "RequestedModel={RequestedModel} " +
+                //         "AiCallLatencyMs={AiCallLatencyMs} " +
+                //         "Outcome={Outcome}",
+                //         PromptVersion,
+                //         "gemini-3.5-flash-lite",
+                //         stopwatch.ElapsedMilliseconds,
+                //         "Timeout");
+                await _logStore.WriteAsync(
+                    "Warning",
+                    "AI triage timed out. " +
+                    $"PromptVersion={PromptVersion} " +
+                    "RequestedModel=gemini-3.5-flash-lite " +
+                    $"AiCallLatencyMs={stopwatch.ElapsedMilliseconds} " +
+                    "Outcome=Timeout",
+                    cancellationToken);
+
                 throw new TimeoutException(
                     $"Gemini triage exceeded the total timeout of " +
-                    $"{TotalAiTimeout.TotalSeconds} seconds.");
+                    $"{_totalAiTimeout.TotalSeconds} seconds.");
             }
+            stopwatch.Stop();
 
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            var aiCallLatencyMs = stopwatch.ElapsedMilliseconds;
+
+            //toekn usage metadata
+            var usage = response.UsageMetadata;
+            var promptTokens = usage?.PromptTokenCount;
+            var outputTokens = usage?.CandidatesTokenCount;
+            var totalTokens = usage?.TotalTokenCount;
+
+            //model tracability fields
+            var actualModelVersion = response.ModelVersion;
+            var providerResponseId = response.ResponseId;
 
             var json =
                 response.Candidates?[0]?.Content?.Parts?[0]?.Text
@@ -149,7 +199,87 @@ namespace AiTicketTriage.Api.Services
             }
 
             //c# business validator class
-            TicketTriageOutputValidator.Validate(modelOutput);
+            try
+            {
+                TicketTriageOutputValidator.Validate(modelOutput);
+                // _logger.LogInformation(
+                //     "AI triage completed. " +
+                //     "PromptVersion={PromptVersion} " +
+                //     "RequestedModel={RequestedModel} " +
+                //     "ActualModelVersion={ActualModelVersion} " +
+                //     "ResponseId={ResponseId} " +
+                //     "AiCallLatencyMs={AiCallLatencyMs} " +
+                //     "PromptTokens={PromptTokens} " +
+                //     "OutputTokens={OutputTokens} " +
+                //     "TotalTokens={TotalTokens} " +
+                //     "ValidationResult={ValidationResult} " +
+                //     "Outcome={Outcome}",
+                //     PromptVersion,
+                //     "gemini-3.5-flash-lite",
+                //     actualModelVersion,
+                //     providerResponseId,
+                //     aiCallLatencyMs,
+                //     promptTokens,
+                //     outputTokens,
+                //     totalTokens,
+                //     "Passed",
+                //     "Success");
+                await _logStore.WriteAsync(
+                    "Information",
+                    "AI triage completed. " +
+                    $"PromptVersion={PromptVersion} " +
+                    "RequestedModel=gemini-3.5-flash-lite " +
+                    $"ActualModelVersion={actualModelVersion} " +
+                    $"ResponseId={providerResponseId} " +
+                    $"AiCallLatencyMs={aiCallLatencyMs} " +
+                    $"PromptTokens={promptTokens} " +
+                    $"OutputTokens={outputTokens} " +
+                    $"TotalTokens={totalTokens} " +
+                    "ValidationResult=Passed " +
+                    "Outcome=Success",
+                    cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                // _logger.LogWarning(
+                //     "AI triage validation failed. " +
+                //     "PromptVersion={PromptVersion} " +
+                //     "RequestedModel={RequestedModel} " +
+                //     "ActualModelVersion={ActualModelVersion} " +
+                //     "ResponseId={ResponseId} " +
+                //     "AiCallLatencyMs={AiCallLatencyMs} " +
+                //     "PromptTokens={PromptTokens} " +
+                //     "OutputTokens={OutputTokens} " +
+                //     "TotalTokens={TotalTokens} " +
+                //     "ValidationResult={ValidationResult} " +
+                //     "Outcome={Outcome}",
+                //     PromptVersion,
+                //     "gemini-3.5-flash-lite",
+                //     actualModelVersion,
+                //     providerResponseId,
+                //     aiCallLatencyMs,
+                //     promptTokens,
+                //     outputTokens,
+                //     totalTokens,
+                //     "Failed",
+                //     "ValidationFailed");
+                await _logStore.WriteAsync(
+                    "Warning",
+                    "AI triage validation failed. " +
+                    $"PromptVersion={PromptVersion} " +
+                    "RequestedModel=gemini-3.5-flash-lite " +
+                    $"ActualModelVersion={actualModelVersion} " +
+                    $"ResponseId={providerResponseId} " +
+                    $"AiCallLatencyMs={aiCallLatencyMs} " +
+                    $"PromptTokens={promptTokens} " +
+                    $"OutputTokens={outputTokens} " +
+                    $"TotalTokens={totalTokens} " +
+                    "ValidationResult=Failed " +
+                    "Outcome=ValidationFailed",
+                    cancellationToken);
+
+                throw;
+            }
 
             //if (modelOutput.Summary is null ||
             //    modelOutput.Category is null ||
