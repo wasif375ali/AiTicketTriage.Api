@@ -2,7 +2,6 @@ using AiTicketTriage.Api.Contracts;
 using AiTicketTriage.Api.Services;
 using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Http.Timeouts;
 
 namespace AiTicketTriage.Api.Controllers
 {
@@ -30,7 +29,12 @@ namespace AiTicketTriage.Api.Controllers
                     request.Description,
                     cancellationToken);
 
-            return Ok(result);
+            if (result.Problem is not null)
+            {
+                return StatusCode(result.Problem.Status ?? 500, result.Problem);
+            }
+
+            return Ok(result.Value);
         }
     }
 }

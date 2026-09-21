@@ -1,3 +1,4 @@
+using AiTicketTriage.Api.Exceptions;
 using AiTicketTriage.Api.Services;
 using Google.GenAI;
 using Google.GenAI.Types;
@@ -17,6 +18,7 @@ builder.Services.AddRequestTimeouts(options =>
 });
 
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<AiTriageExceptionHandler>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

@@ -4,9 +4,9 @@ namespace AiTicketTriage.Api.Services
 {
     public interface IAiTicketTriageService
     {
-        Task<TicketTriageResponse> TriageAsync(
-       string subject,
-       string description,
-       CancellationToken cancellationToken = default);
+        Task<TicketTriageResult> TriageAsync(
+            string subject,
+            string description,
+            CancellationToken cancellationToken = default);
     }
 }

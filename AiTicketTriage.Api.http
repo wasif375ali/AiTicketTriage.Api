@@ -260,7 +260,7 @@ POST {{AiTicketTriage.Api_HttpsHostAddress}}/api/ai/tickets/triage
 Content-Type: application/json
 
 {
-  "subject": "Create-ticket buttons overlap on a small laptop",
+  "subject": "",
   "description": "A synthetic agent on a 1366x768 screen cannot click Save because Cancel and Save overlap. No error occurs; the layout is unusable."
 }
 

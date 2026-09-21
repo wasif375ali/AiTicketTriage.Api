@@ -1,4 +1,5 @@
 ﻿using AiTicketTriage.Api.Contracts;
+using AiTicketTriage.Api.Exceptions;
 using AiTicketTriage.Api.Models;
 using Google.GenAI;
 using Google.GenAI.Types;
@@ -23,13 +24,13 @@ namespace AiTicketTriage.Api.Services
             IConfiguration configuration,
             IApplicationLogStore logStore,
             HttpOptions httpOptions)
-            // ILogger<GeminiTicketTriageService> logger)
+        // ILogger<GeminiTicketTriageService> logger)
         {
             _client = client;
             _logStore = logStore;
             _httpOptions = httpOptions;
             // _logger = logger;
-            _model = configuration["Gemini:Model"] ?? throw new InvalidOperationException("Gemini model is not configured.");
+            _model = configuration["Gemini:Model"] ?? string.Empty;
             _totalAiTimeout = TimeSpan.FromSeconds(
                 configuration.GetValue<int?>("Ai:TriageTimeoutSeconds") ?? 90);
         }
@@ -84,12 +85,17 @@ namespace AiTicketTriage.Api.Services
         }
         """
     )!;
-        public async Task<TicketTriageResponse> TriageAsync(
+        public async Task<TicketTriageResult> TriageAsync(
             string subject,
             string description,
             CancellationToken cancellationToken = default)
         {
-
+            try
+            {
+            if (string.IsNullOrWhiteSpace(_model))
+            {
+                return Fail(new AiOutputInvalidException("Gemini model is not configured."));
+            }
 
             using var totalTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
@@ -143,33 +149,93 @@ namespace AiTicketTriage.Api.Services
                           contents: userInput,
                           config: config,
                           cancellationToken: totalTimeoutCts.Token);
+
+                if (response.PromptFeedback?.BlockReason is { } promptBlockReason)
+                {
+                    await _logStore.WriteAsync(
+                        "Warning",
+                        "AI triage prompt was blocked. " +
+                        $"PromptVersion={PromptVersion} " +
+                        $"RequestedModel={_model} " +
+                        $"ResponseId={response.ResponseId} " +
+                        $"BlockReason={promptBlockReason} " +
+                        "Outcome=ContentBlocked",
+                        cancellationToken);
+
+                    return Fail(new AiContentBlockedException(
+                        promptBlockReason.ToString()));
+                }
+
+                var candidate = response.Candidates?.FirstOrDefault();
+
+                var finishReason = candidate?.FinishReason;
+
+                if (finishReason is { } reason && IsBlockedFinishReason(reason))
+                {
+                    await _logStore.WriteAsync(
+                        "Warning",
+                        "AI triage generation was blocked. " +
+                        $"PromptVersion={PromptVersion} " +
+                        $"RequestedModel={_model} " +
+                        $"ResponseId={response.ResponseId} " +
+                        $"FinishReason={reason} " +
+                        "Outcome=ContentBlocked",
+                        cancellationToken);
+
+                    return Fail(new AiContentBlockedException(
+                        reason.ToString()));
+                }
+
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && totalTimeoutCts.IsCancellationRequested)
+
+            catch (AiContentBlockedException ex)
+            {
+                return Fail(ex);
+            }
+            catch (AiTimeoutException ex)
+            {
+                return Fail(ex);
+            }
+            catch (AiProviderException ex)
+            {
+                return Fail(ex);
+            }
+            catch (AiOutputInvalidException ex)
+            {
+                return Fail(ex);
+            }
+            catch (Exception ex)
             {
                 stopwatch.Stop();
 
-                // _logger.LogWarning(
-                //         "AI triage timed out. " +
-                //         "PromptVersion={PromptVersion} " +
-                //         "RequestedModel={RequestedModel} " +
-                //         "AiCallLatencyMs={AiCallLatencyMs} " +
-                //         "Outcome={Outcome}",
-                //         PromptVersion,
-                //         "gemini-3.5-flash-lite",
-                //         stopwatch.ElapsedMilliseconds,
-                //         "Timeout");
-                await _logStore.WriteAsync(
-                    "Warning",
-                    "AI triage timed out. " +
-                    $"PromptVersion={PromptVersion} " +
-                    "RequestedModel=gemini-3.5-flash-lite " +
-                    $"AiCallLatencyMs={stopwatch.ElapsedMilliseconds} " +
-                    "Outcome=Timeout",
-                    cancellationToken);
+                if (IsTimeoutFailure(ex, totalTimeoutCts))
+                {
+                    await WriteLogSafeAsync(
+                        "Warning",
+                        "AI triage timed out. " +
+                        $"PromptVersion={PromptVersion} " +
+                        $"RequestedModel={_model} " +
+                        $"AiCallLatencyMs={stopwatch.ElapsedMilliseconds} " +
+                        "Outcome=Timeout");
 
-                throw new TimeoutException(
-                    $"Gemini triage exceeded the total timeout of " +
-                    $"{_totalAiTimeout.TotalSeconds} seconds.");
+                    return Fail(new AiTimeoutException(
+                        $"Gemini triage exceeded the configured timeout of " +
+                        $"{_totalAiTimeout.TotalSeconds} seconds.",
+                        ex));
+                }
+
+                await WriteLogSafeAsync(
+                    "Warning",
+                    "AI provider call failed. " +
+                    $"PromptVersion={PromptVersion} " +
+                    $"RequestedModel={_model} " +
+                    $"AiCallLatencyMs={stopwatch.ElapsedMilliseconds} " +
+                    $"Error={ex.GetType().Name} " +
+                    "Outcome=ProviderFailed");
+
+                return Fail(new AiProviderException(
+                    "The AI provider request failed.",
+                    ex));
             }
             stopwatch.Stop();
 
@@ -185,17 +251,34 @@ namespace AiTicketTriage.Api.Services
             var actualModelVersion = response.ModelVersion;
             var providerResponseId = response.ResponseId;
 
-            var json =
-                response.Candidates?[0]?.Content?.Parts?[0]?.Text
-                ?? throw new InvalidOperationException(
-                    "Gemini returned an empty response.");
+            var json = response.Candidates?[0]?.Content?.Parts?[0]?.Text;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return Fail(new AiOutputInvalidException(
+                    "Gemini returned no usable structured output."));
+            }
 
-            var modelOutput = JsonSerializer.Deserialize<TicketTriageModelOutput>(json);
+            //var modelOutput = JsonSerializer.Deserialize<TicketTriageModelOutput>(json);
+
+            TicketTriageModelOutput? modelOutput;
+
+            try
+            {
+                modelOutput =
+                    JsonSerializer.Deserialize<TicketTriageModelOutput>(
+                        json);
+            }
+            catch (JsonException ex)
+            {
+                return Fail(new AiOutputInvalidException(
+                    "Gemini output could not be deserialized.",
+                    ex));
+            }
 
             if (modelOutput is null)
             {
-                throw new InvalidOperationException(
-                    "Gemini structured output could not be deserialized.");
+                return Fail(new AiOutputInvalidException(
+                    "Gemini output deserialized to null."));
             }
 
             //c# business validator class
@@ -239,7 +322,7 @@ namespace AiTicketTriage.Api.Services
                     "Outcome=Success",
                     cancellationToken);
             }
-            catch (InvalidOperationException)
+            catch (AiOutputInvalidException ex)
             {
                 // _logger.LogWarning(
                 //     "AI triage validation failed. " +
@@ -278,7 +361,7 @@ namespace AiTicketTriage.Api.Services
                     "Outcome=ValidationFailed",
                     cancellationToken);
 
-                throw;
+                return Fail(ex);
             }
 
             //if (modelOutput.Summary is null ||
@@ -287,17 +370,22 @@ namespace AiTicketTriage.Api.Services
             //    modelOutput.SuggestedAction is null ||
             //    modelOutput.NeedsHumanReview is null)
             //{
-            //    throw new InvalidOperationException(
+            //    throw new AiOutputInvalidException(
             //        "Gemini returned incomplete structured output.");
             //}
-            return new TicketTriageResponse
+            return TicketTriageResult.Success(new TicketTriageResponse
             {
                 Summary = modelOutput.Summary!,
                 Category = modelOutput.Category!,
                 Priority = modelOutput.Priority!,
                 SuggestedAction = modelOutput.SuggestedAction!,
                 NeedsHumanReview = modelOutput.NeedsHumanReview.Value
-            };
+            });
+            }
+            catch (Exception ex)
+            {
+                return Fail(ex);
+            }
             //var humanReviewText =
             //    GetValue(rawText, "NEEDS_HUMAN_REVIEW:");
 
@@ -338,5 +426,50 @@ namespace AiTicketTriage.Api.Services
 
             return line[label.Length..].Trim();
         }
+
+        private static bool IsBlockedFinishReason(FinishReason reason)
+        {
+            return
+                reason == FinishReason.Safety ||
+                reason == FinishReason.Blocklist ||
+                reason == FinishReason.ProhibitedContent ||
+                reason == FinishReason.Spii ||
+                reason == FinishReason.Recitation ||
+                reason == FinishReason.Language;
+        }
+
+        private static TicketTriageResult Fail(Exception exception) =>
+            TicketTriageResult.Failure(AiProblemDetailsFactory.Create(exception));
+
+        private async Task WriteLogSafeAsync(string level, string message)
+        {
+            try
+            {
+                using var logCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await _logStore.WriteAsync(level, message, logCts.Token);
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool IsTimeoutFailure(
+            Exception exception,
+            CancellationTokenSource totalTimeoutCts)
+        {
+            if (exception is TimeoutException or AiTimeoutException)
+            {
+                return true;
+            }
+
+            if (exception is not OperationCanceledException)
+            {
+                return false;
+            }
+
+            return totalTimeoutCts.IsCancellationRequested
+                || exception.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase);
+        }
+
     }
 }
